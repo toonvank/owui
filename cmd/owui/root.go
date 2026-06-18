@@ -30,7 +30,7 @@ func main() {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "owui",
-		Short:         "Professional CLI for Open WebUI",
+		Short:         "Fast terminal UI for Open WebUI (Go)",
 		Long:          "Connect to your Open WebUI server for chat, models, knowledge, and more.\n\nRun without arguments to start interactive mode.",
 		SilenceUsage:  true,
 		SilenceErrors: true,

@@ -1,6 +1,8 @@
 # owui
 
-Terminal client for [Open WebUI](https://github.com/open-webui/open-webui). Chat from your shell with a full-screen TUI — streaming, markdown, model switching, and chat resume.
+A fast terminal UI for [Open WebUI](https://github.com/open-webui/open-webui), written in Go.
+
+One static binary — full-screen chat in your shell with streaming, markdown, and model switching. No browser tab, no Electron, no `npm install`.
 
 > **Not a server.** owui connects to your existing Open WebUI instance via its API. It does not replace Open WebUI or Open CoreUI.
 
