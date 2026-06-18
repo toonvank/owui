@@ -22,11 +22,15 @@ Terminal client for [Open WebUI](https://github.com/open-webui/open-webui). Chat
 
 ## Install
 
+**From source:**
+
 ```bash
 git clone https://github.com/toonvank/owui.git
 cd owui
 make install   # installs to ~/.local/bin/owui
 ```
+
+**Pre-built binaries** are on [GitHub Releases](https://github.com/toonvank/owui/releases) (published when a version tag like `v0.1.0` is pushed — not on every commit).
 
 Ensure `~/.local/bin` is on your `PATH`.
 
@@ -97,7 +101,7 @@ Config is stored locally at:
 ~/.config/owui/config.yaml
 ```
 
-Example (use your own values — **never commit this file**):
+Example:
 
 ```yaml
 base_url: http://localhost:3000
@@ -113,12 +117,6 @@ stream: true
 | `OWUI_BASE_URL` | Server URL (overrides config) |
 | `OWUI_API_KEY` | API key (overrides config) |
 | `OWUI_MODEL` | Default model (overrides config) |
-
-## Security
-
-- **API keys and passwords stay on your machine** in `~/.config/owui/` — they are not part of this repository.
-- Do not commit `config.yaml`, `.env`, or session files.
-- Prefer API keys over password login for day-to-day use.
 
 ## Development
 
