@@ -1,0 +1,13 @@
+bin/
+dist/
+/owui
+*.log
+.DS_Store
+*.exe
+*.test
+vendor/
+.env
+.env.*
+config.yaml
+config.local.yaml
+*.local.yaml
