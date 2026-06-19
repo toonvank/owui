@@ -1,5 +1,7 @@
 package repl
 
+import "strings"
+
 // ModelPick is one entry in the interactive /model picker.
 type ModelPick struct {
 	ID      string
@@ -17,11 +19,20 @@ func (r *REPL) SearchModels(query string, limit int) []ModelPick {
 	matches := r.matchModels(query, limit)
 	out := make([]ModelPick, 0, len(matches))
 	for _, m := range matches {
-		kind := "model"
-		if m.entry.Custom {
-			kind = "custom"
+		kind := m.entry.Connection
+		if kind == "" {
+			kind = m.entry.OwnedBy
 		}
-		if m.entry.Name != "" && m.entry.Name != m.entry.ID {
+		if kind == "" {
+			if m.entry.Custom {
+				kind = "custom"
+			} else {
+				kind = "model"
+			}
+		}
+		if len(m.entry.Caps) > 0 {
+			kind += " · " + strings.Join(m.entry.Caps, ", ")
+		} else if m.entry.Name != "" && m.entry.Name != m.entry.ID {
 			kind += " · " + m.entry.Name
 		}
 		out = append(out, ModelPick{

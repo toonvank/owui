@@ -232,7 +232,12 @@ func (m *Model) syncSuggestions() {
 		return
 	}
 	if strings.HasPrefix(line, "/model") || strings.HasPrefix(line, "/chats") ||
-		strings.HasPrefix(line, "/resume") || strings.HasPrefix(line, "/load") {
+		strings.HasPrefix(line, "/resume") || strings.HasPrefix(line, "/load") ||
+		strings.HasPrefix(line, "/sessions") || strings.HasPrefix(line, "/session load") ||
+		strings.HasPrefix(line, "/knowledge") || strings.HasPrefix(line, "/kb") ||
+		strings.HasPrefix(line, "/filters") || strings.HasPrefix(line, "/functions") ||
+		strings.HasPrefix(line, "/tools") ||
+		strings.HasPrefix(line, "/profile") {
 		m.showSuggestions = false
 		m.suggestions = nil
 		return
@@ -454,6 +459,13 @@ func (m *Model) submitLine(line string) tea.Cmd {
 		} else if result.ReloadMessages {
 			m.reloadFromSession()
 		}
+		if result.ResendPrompt != "" {
+			m.refreshViewportForce(true)
+			return m.beginChat(result.ResendPrompt)
+		}
+		if result.ScrollToMsg >= 0 {
+			m.scrollToMessage(result.ScrollToMsg)
+		}
 		m.refreshViewportForce(true)
 		return nil
 	}
@@ -472,7 +484,24 @@ func (m *Model) submitLine(line string) tea.Cmd {
 		return nil
 	}
 
+	m.repl.PushInputHistory(prompt)
 	return m.beginChat(prompt)
+}
+
+func (m *Model) scrollToMessage(msgIdx int) {
+	if msgIdx < 0 || msgIdx >= len(m.messages) {
+		return
+	}
+	content := renderChatLog(m.messages, m.width, m.collapse, m.cache, m.repl.CurrentModel())
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 {
+		return
+	}
+	target := (msgIdx * len(lines)) / len(m.messages)
+	if target >= len(lines) {
+		target = len(lines) - 1
+	}
+	m.viewport.SetYOffset(target)
 }
 
 func (m Model) elapsedThinking() float64 {

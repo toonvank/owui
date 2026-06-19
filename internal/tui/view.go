@@ -5,7 +5,7 @@ import "strings"
 func (m Model) View() string {
 	var b strings.Builder
 
-	b.WriteString(renderHeader(m.repl.BaseURL(), m.repl.CurrentModel(), m.repl.LocalSessionLabel(), m.width))
+	b.WriteString(renderHeader(m.repl.BaseURL(), m.repl.CurrentModel(), m.repl.ProfileName(), m.repl.LocalSessionLabel(), m.repl.RAGContextLabel(), m.width))
 	b.WriteString("\n")
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
@@ -43,6 +43,26 @@ func metaFilterText(overlay metaOverlayKind, line string) string {
 		if active, filter := parseChatsCommand(line); active {
 			return filter
 		}
+	case metaKnowledgePicker:
+		if active, filter := parseKnowledgeCommand(line); active {
+			return filter
+		}
+	case metaFilterPicker:
+		if active, filter := parseFiltersCommand(line); active {
+			return filter
+		}
+	case metaToolPicker:
+		if active, filter := parseToolsCommand(line); active {
+			return filter
+		}
+	case metaProfilePicker:
+		if active, filter := parseProfileCommand(line); active {
+			return filter
+		}
+	case metaSessionPicker:
+		if active, filter := parseSessionsCommand(line); active {
+			return filter
+		}
 	}
 	return ""
 }
@@ -62,8 +82,17 @@ func (m Model) renderInput() string {
 			return style.Width(m.width).Render(inner)
 		}
 		hint := "↑↓ pick · Enter confirm · Esc cancel"
-		if m.metaOverlay == metaChatPicker {
+		switch m.metaOverlay {
+		case metaChatPicker:
 			hint = "↑↓ pick · Enter resume · Esc cancel"
+		case metaSessionPicker:
+			hint = "↑↓ pick · Enter load · Esc cancel"
+		case metaKnowledgePicker:
+			hint = "↑↓ pick · Enter select · Esc cancel"
+		case metaFilterPicker, metaToolPicker:
+			hint = "↑↓ pick · Enter toggle · Esc done"
+		case metaProfilePicker:
+			hint = "↑↓ pick · Enter switch · Esc cancel"
 		}
 		return style.Width(m.width).Render(chevronStyle.Render("❯ ") + mutedStyle.Render(hint))
 	}

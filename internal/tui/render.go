@@ -261,8 +261,11 @@ func renderFooter(bar string, width int) string {
 	return footerStyle.Render(bar)
 }
 
-func renderHeader(baseURL, model, sessionLabel string, width int) string {
+func renderHeader(baseURL, model, profileName, sessionLabel, ragLabel string, width int) string {
 	title := brandStyle.Render("owui") + dimStyle.Render("  ·  Open WebUI")
+	if profileName != "" && profileName != "default" {
+		title += accentStyle.Render("  [" + truncateDisplay(profileName, 16) + "]")
+	}
 
 	host := strings.TrimPrefix(strings.TrimPrefix(baseURL, "https://"), "http://")
 	host = truncateDisplay(host, 32)
@@ -272,6 +275,9 @@ func renderHeader(baseURL, model, sessionLabel string, width int) string {
 	parts := []string{mutedStyle.Render(host), activeStyle.Render(model)}
 	if sessionLabel != "" {
 		parts = append(parts, dimStyle.Render(truncateDisplay(sessionLabel, 20)))
+	}
+	if ragLabel != "" {
+		parts = append(parts, accentStyle.Render(truncateDisplay(ragLabel, 24)))
 	}
 	status := strings.Join(parts, sep)
 

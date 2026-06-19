@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 )
@@ -141,6 +142,57 @@ func (c *Client) LoadChat(id string) (LoadedChat, error) {
 		parsed.ID = id
 	}
 	return parsed, nil
+}
+
+type chatFormData struct {
+	Chat map[string]any `json:"chat"`
+}
+
+type chatMutationResponse struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Pinned *bool  `json:"pinned"`
+}
+
+func (c *Client) ListPinnedChats() ([]ChatSummary, error) {
+	var chats []ChatSummary
+	err := c.request(http.MethodGet, "/api/v1/chats/pinned", nil, &chats)
+	if err != nil {
+		return nil, err
+	}
+	for i := range chats {
+		chats[i].Pinned = true
+	}
+	return chats, nil
+}
+
+func (c *Client) UpdateChatTitle(id, title string) error {
+	raw, err := c.GetChat(id)
+	if err != nil {
+		return c.postChatUpdate(id, map[string]any{"title": title})
+	}
+	chatObj, _ := raw["chat"].(map[string]any)
+	if chatObj == nil {
+		chatObj = map[string]any{}
+	}
+	chatObj["title"] = title
+	return c.postChatUpdate(id, chatObj)
+}
+
+func (c *Client) postChatUpdate(id string, chat map[string]any) error {
+	var resp chatMutationResponse
+	return c.request(http.MethodPost, "/api/v1/chats/"+id, chatFormData{Chat: chat}, &resp)
+}
+
+func (c *Client) ToggleChatPinned(id string) (bool, error) {
+	var resp chatMutationResponse
+	if err := c.request(http.MethodPost, "/api/v1/chats/"+id+"/pin", nil, &resp); err != nil {
+		return false, err
+	}
+	if resp.Pinned != nil {
+		return *resp.Pinned, nil
+	}
+	return true, nil
 }
 
 func (c *Client) resolveChatID(prefix string) (string, error) {

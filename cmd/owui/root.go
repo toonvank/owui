@@ -14,10 +14,12 @@ import (
 )
 
 var (
-	version   = "0.1.0"
-	cfg       config.Config
-	jsonOut   bool
-	quietMode bool
+	version      = "0.6.0"
+	cfg          config.Config
+	jsonOut      bool
+	quietMode    bool
+	resumeID     string
+	profileFlag  string
 )
 
 func main() {
@@ -36,7 +38,7 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			cfg, err = config.Load()
+			cfg, err = config.LoadWithProfile(profileFlag)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,6 +60,11 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			r := repl.New(client, cfg)
+			if resumeID != "" {
+				if result := r.ResumeChatByID(resumeID); result.Err != nil {
+					return result.Err
+				}
+			}
 			if repl.IsInteractive() {
 				return tui.Run(r)
 			}
@@ -67,6 +74,8 @@ func newRootCmd() *cobra.Command {
 
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "output raw JSON")
 	root.PersistentFlags().BoolVarP(&quietMode, "quiet", "q", false, "suppress non-essential output")
+	root.PersistentFlags().StringVar(&resumeID, "resume", "", "resume a server chat by ID prefix")
+	root.PersistentFlags().StringVar(&profileFlag, "profile", "", "config profile to use (overrides OWUI_PROFILE)")
 
 	root.AddCommand(
 		chatCmd(),
@@ -80,6 +89,7 @@ func newRootCmd() *cobra.Command {
 		pullCmd(),
 		statusCmd(),
 		functionsCmd(),
+		doctorCmd(),
 		completionCmd(),
 	)
 

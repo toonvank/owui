@@ -22,10 +22,48 @@ func chatRecency(ch api.ChatSummary) int64 {
 	return ch.CreatedAt
 }
 
+func sortChatsByPinnedRecency(chats []api.ChatSummary) {
+	sort.Slice(chats, func(i, j int) bool {
+		if chats[i].Pinned != chats[j].Pinned {
+			return chats[i].Pinned
+		}
+		return chatRecency(chats[i]) > chatRecency(chats[j])
+	})
+}
+
 func sortChatsByRecency(chats []api.ChatSummary) {
 	sort.Slice(chats, func(i, j int) bool {
 		return chatRecency(chats[i]) > chatRecency(chats[j])
 	})
+}
+
+func applyPinnedFlags(chats []api.ChatSummary, pinned []api.ChatSummary) []api.ChatSummary {
+	if len(pinned) == 0 {
+		return chats
+	}
+	ids := make(map[string]bool, len(pinned))
+	for _, ch := range pinned {
+		ids[ch.ID] = true
+	}
+	for i := range chats {
+		if ids[chats[i].ID] {
+			chats[i].Pinned = true
+		}
+	}
+	for _, ch := range pinned {
+		found := false
+		for i := range chats {
+			if chats[i].ID == ch.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			ch.Pinned = true
+			chats = append(chats, ch)
+		}
+	}
+	return chats
 }
 
 func (c *chatCache) set(chats []api.ChatSummary, err error) {
@@ -37,7 +75,7 @@ func (c *chatCache) set(chats []api.ChatSummary, err error) {
 		return
 	}
 	entries := append([]api.ChatSummary(nil), chats...)
-	sortChatsByRecency(entries)
+	sortChatsByPinnedRecency(entries)
 	c.entries = entries
 	c.loaded = true
 	c.err = nil
@@ -63,17 +101,54 @@ func (c *chatCache) ready() bool {
 	return c.loaded && c.err == nil
 }
 
+func (c *chatCache) setPinned(id string, pinned bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range c.entries {
+		if c.entries[i].ID == id {
+			c.entries[i].Pinned = pinned
+			break
+		}
+	}
+	sortChatsByPinnedRecency(c.entries)
+}
+
+func (c *chatCache) updateTitle(id, title string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range c.entries {
+		if c.entries[i].ID == id {
+			c.entries[i].Title = title
+			break
+		}
+	}
+}
+
+func (c *chatCache) invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.loaded = false
+	c.entries = nil
+	c.err = nil
+}
+
 // ChatPick is one entry in the interactive /chats picker.
 type ChatPick struct {
 	ID      string
 	Title   string
 	ShortID string
 	Current bool
+	Pinned  bool
 }
 
 func (r *REPL) preloadChats() {
 	go func() {
 		chats, err := r.client.ListChats(1)
+		if err == nil {
+			if pinned, perr := r.client.ListPinnedChats(); perr == nil {
+				chats = applyPinnedFlags(chats, pinned)
+			}
+		}
 		r.chats.set(chats, err)
 	}()
 }
@@ -83,7 +158,17 @@ func (r *REPL) ensureChats() {
 		return
 	}
 	chats, err := r.client.ListChats(1)
+	if err == nil {
+		if pinned, perr := r.client.ListPinnedChats(); perr == nil {
+			chats = applyPinnedFlags(chats, pinned)
+		}
+	}
 	r.chats.set(chats, err)
+}
+
+func (r *REPL) refreshChats() {
+	r.chats.invalidate()
+	r.preloadChats()
 }
 
 // ChatsReady reports whether the chat list has been fetched.
@@ -135,6 +220,9 @@ func (r *REPL) SearchChats(query string, limit int) []ChatPick {
 		scoredList = append(scoredList, scored{ch: ch, score: score})
 	}
 	sort.Slice(scoredList, func(i, j int) bool {
+		if scoredList[i].ch.Pinned != scoredList[j].ch.Pinned {
+			return scoredList[i].ch.Pinned
+		}
 		if scoredList[i].score != scoredList[j].score {
 			return scoredList[i].score > scoredList[j].score
 		}
@@ -159,6 +247,7 @@ func (r *REPL) SearchChats(query string, limit int) []ChatPick {
 			Title:   title,
 			ShortID: short,
 			Current: s.ch.ID == r.session.ChatID,
+			Pinned:  s.ch.Pinned,
 		})
 	}
 	return out

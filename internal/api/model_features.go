@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 )
 
 type ModelMeta struct {
@@ -28,6 +30,50 @@ func (m Model) Meta() ModelMeta {
 		}
 	}
 	return ModelMeta{}
+}
+
+// CapabilityTags returns short capability labels for display.
+func (m Model) CapabilityTags() []string {
+	meta := m.Meta()
+	if len(meta.Capabilities) == 0 {
+		return nil
+	}
+	priority := []string{
+		"vision", "builtin_tools", "web_search", "code_interpreter",
+		"file_upload", "file_context", "image_generation", "memory",
+	}
+	var tags []string
+	seen := make(map[string]bool)
+	for _, cap := range priority {
+		if meta.Capabilities[cap] {
+			tags = append(tags, strings.ReplaceAll(cap, "_", " "))
+			seen[cap] = true
+		}
+	}
+	for cap, on := range meta.Capabilities {
+		if on && !seen[cap] {
+			tags = append(tags, strings.ReplaceAll(cap, "_", " "))
+		}
+	}
+	sort.Strings(tags)
+	if len(tags) > 3 {
+		tags = tags[:3]
+	}
+	return tags
+}
+
+// ModelKindLabel returns a short provider/connection label.
+func (m Model) ModelKindLabel() string {
+	if m.Connection != "" {
+		return m.Connection
+	}
+	if m.OwnedBy != "" {
+		return m.OwnedBy
+	}
+	if m.IsCustom() {
+		return "custom"
+	}
+	return "model"
 }
 
 // FeaturesFromModel maps Open WebUI model capabilities to the features block

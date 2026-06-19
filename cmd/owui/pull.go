@@ -1,12 +1,17 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 	"github.com/toonvank/owui/internal/output"
 )
 
 func pullCmd() *cobra.Command {
-	return &cobra.Command{
+	var progress bool
+
+	cmd := &cobra.Command{
 		Use:   "pull <model>",
 		Short: "Pull an Ollama model via Open WebUI proxy",
 		Args:  cobra.ExactArgs(1),
@@ -15,12 +20,33 @@ func pullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			output.Info("pulling " + args[0] + "...")
-			if err := client.PullModel(args[0]); err != nil {
+
+			name := args[0]
+			if !quietMode {
+				output.Info("pulling " + name + "...")
+			}
+
+			var onStatus func(string)
+			if progress {
+				onStatus = func(status string) {
+					fmt.Fprintf(os.Stderr, "\r→ %s", status)
+				}
+			}
+
+			if err := client.PullModelWithProgress(name, onStatus); err != nil {
+				if progress {
+					fmt.Fprintln(os.Stderr)
+				}
 				return err
+			}
+			if progress {
+				fmt.Fprintln(os.Stderr)
 			}
 			output.Success("pull complete")
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&progress, "progress", false, "show pull progress on stderr")
+	return cmd
 }

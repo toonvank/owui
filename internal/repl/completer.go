@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -20,20 +21,38 @@ var slashCommands = []slashCommand{
 	{name: "model", desc: "Switch model · Tab"},
 	{name: "models", desc: "List models · Tab"},
 	{name: "chats", desc: "Browse & resume chats"},
+	{name: "sessions", desc: "Browse local sessions"},
 	{name: "server", desc: "Show server URL and setup hints"},
 	{name: "setup", desc: "How to run owui setup"},
 	{name: "resume", desc: "Resume chat by id"},
 	{name: "load", desc: "Alias for /resume"},
-	{name: "filters", desc: "Filters & features"},
+	{name: "filters", desc: "Toggle filters interactively"},
 	{name: "functions", desc: "Alias for /filters"},
+	{name: "tools", desc: "Toggle tools interactively"},
 	{name: "stream", desc: "Toggle streaming"},
 	{name: "session", desc: "Local session save/list/load"},
+	{name: "system", desc: "Show or set system prompt"},
+	{name: "title", desc: "Show or set session title"},
+	{name: "export", desc: "Export conversation (md/json)"},
+	{name: "copy", desc: "Copy last reply to clipboard"},
+	{name: "regen", desc: "Regenerate last response"},
+	{name: "file", desc: "Upload & attach RAG files"},
+	{name: "knowledge", desc: "Pick knowledge collection"},
+	{name: "kb", desc: "Alias for /knowledge"},
+	{name: "profile", desc: "Switch config profile"},
+	{name: "search", desc: "Search chat history"},
+	{name: "fork", desc: "Fork to new local session"},
+	{name: "delete", desc: "Delete linked server chat"},
+	{name: "pin", desc: "Pin or unpin linked server chat"},
 }
 
 type modelEntry struct {
-	ID     string
-	Name   string
-	Custom bool
+	ID         string
+	Name       string
+	Custom     bool
+	OwnedBy    string
+	Connection string
+	Caps       []string
 }
 
 type modelCache struct {
@@ -58,9 +77,12 @@ func (c *modelCache) set(models []api.Model) {
 			continue
 		}
 		entries = append(entries, modelEntry{
-			ID:     m.ID,
-			Name:   m.DisplayName(),
-			Custom: m.IsCustom(),
+			ID:         m.ID,
+			Name:       m.DisplayName(),
+			Custom:     m.IsCustom(),
+			OwnedBy:    m.OwnedBy,
+			Connection: m.Connection,
+			Caps:       m.CapabilityTags(),
 		})
 	}
 	c.setFromEntries(entries)
@@ -127,6 +149,16 @@ func (r *REPL) completeSlash(line string) []Suggestion {
 			return r.modelSuggests(arg, false)
 		case "resume", "load", "chats":
 			return r.chatSuggests(arg)
+		case "session":
+			if arg == "load" || strings.HasPrefix(arg, "load ") {
+				return r.sessionSuggests(strings.TrimSpace(strings.TrimPrefix(arg, "load")))
+			}
+		case "file", "files":
+			if arg == "upload " || strings.HasPrefix(arg, "upload ") {
+				return nil
+			}
+		case "knowledge", "kb":
+			return r.knowledgeSuggests(arg)
 		}
 		return nil
 	}
@@ -221,12 +253,22 @@ func (r *REPL) matchModels(query string, limit int) []scoredModel {
 }
 
 func (e modelEntry) description(current string) string {
-	kind := "model"
-	if e.Custom {
-		kind = "custom"
+	kind := e.Connection
+	if kind == "" {
+		kind = e.OwnedBy
 	}
-	if e.Name != "" {
+	if kind == "" {
+		if e.Custom {
+			kind = "custom"
+		} else {
+			kind = "model"
+		}
+	}
+	if e.Name != "" && e.Name != e.ID {
 		kind += " · " + e.Name
+	}
+	if len(e.Caps) > 0 {
+		kind += " · " + strings.Join(e.Caps, ", ")
 	}
 	if e.ID == current {
 		kind += " (current)"
@@ -285,6 +327,44 @@ func (r *REPL) chatSuggests(prefix string) []Suggestion {
 		if len(out) >= 15 {
 			break
 		}
+	}
+	return out
+}
+
+func (r *REPL) knowledgeSuggests(prefix string) []Suggestion {
+	picks := r.SearchKnowledge(prefix, 15)
+	if len(picks) == 0 {
+		return nil
+	}
+	out := make([]Suggestion, 0, len(picks))
+	for _, p := range picks {
+		short := p.ID
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		out = append(out, Suggestion{
+			Text:        short,
+			Description: p.Name,
+		})
+	}
+	return out
+}
+
+func (r *REPL) sessionSuggests(prefix string) []Suggestion {
+	picks := r.SearchLocalSessions(prefix, 15)
+	if len(picks) == 0 {
+		return nil
+	}
+	out := make([]Suggestion, 0, len(picks))
+	for _, p := range picks {
+		title := p.Title
+		if len(title) > 40 {
+			title = title[:37] + "..."
+		}
+		out = append(out, Suggestion{
+			Text:        p.ShortID,
+			Description: fmt.Sprintf("%s (%d msgs)", title, p.MsgCount),
+		})
 	}
 	return out
 }

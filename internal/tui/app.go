@@ -7,7 +7,7 @@ import (
 
 // Run starts the full-screen interactive TUI for the given REPL session.
 func Run(r *repl.REPL) error {
-	initTerminal()
+	initTerminal(r.Cfg())
 
 	m := New(r)
 	p := tea.NewProgram(

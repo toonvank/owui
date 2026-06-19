@@ -26,6 +26,7 @@ var (
 	dimStyle     = lipgloss.NewStyle().Foreground(colorDim)
 	textStyle    = lipgloss.NewStyle().Foreground(colorText)
 	doneStyle    = lipgloss.NewStyle().Foreground(colorDone)
+	accentStyle  = lipgloss.NewStyle().Foreground(colorAssist)
 	pipeStyle    = dimStyle
 	chevronStyle = brandStyle
 

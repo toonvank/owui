@@ -5,28 +5,59 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/toonvank/owui/internal/api"
 	"github.com/toonvank/owui/internal/config"
 	"github.com/toonvank/owui/internal/output"
+	"github.com/toonvank/owui/internal/session"
 	"golang.org/x/term"
 )
 
 type Session struct {
-	Model      string
-	Title      string
-	Messages   []api.Message
-	ChatID     string
-	LocalID    string
-	LocalTitle string
+	Model          string
+	Title          string
+	Messages       []api.Message
+	ChatID         string
+	LocalID        string
+	LocalTitle     string
+	CollectionID      string
+	CollectionName    string
+	FileIDs           []string
+	AttachedFiles     []session.AttachedFile
+	ActiveFilterIDs   []string
+	FiltersCustomized bool
+	ActiveToolIDs     []string
+	ToolsCustomized   bool
 }
 
 type REPL struct {
-	client  *api.Client
-	cfg     config.Config
-	session Session
-	models  modelCache
-	chats   chatCache
+	client           *api.Client
+	cfg              config.Config
+	session          Session
+	models           modelCache
+	chats            chatCache
+	knowledge        knowledgeCache
+	functions        functionCache
+	lastTurnDuration time.Duration
+	lastSearchQuery  string
+	searchHits       []int
+	lastSearchIdx    int
+	inputHistory     []string
+	historyIdx       int
+}
+
+// Cfg returns the active configuration.
+func (r *REPL) Cfg() config.Config {
+	return r.cfg
+}
+
+// ProfileName returns the active config profile.
+func (r *REPL) ProfileName() string {
+	if r.cfg.ProfileName != "" {
+		return r.cfg.ProfileName
+	}
+	return config.DefaultProfile
 }
 
 func New(client *api.Client, cfg config.Config) *REPL {
@@ -38,6 +69,8 @@ func New(client *api.Client, cfg config.Config) *REPL {
 	r.initLocalSession()
 	r.preloadModels()
 	r.preloadChats()
+	r.preloadKnowledge()
+	r.preloadFunctions()
 	return r
 }
 
@@ -92,6 +125,15 @@ func (r *REPL) handleLine(line string) {
 		}
 		if result.Cleared {
 			// already cleared in RunSlashCommand
+		}
+		if result.ReloadMessages {
+			// basic mode has no message buffer to reload
+		}
+		if result.ResendPrompt != "" {
+			if err := r.send(result.ResendPrompt); err != nil {
+				output.Error(err.Error())
+			}
+			return
 		}
 		r.printShortcutBar()
 		return

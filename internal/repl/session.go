@@ -9,7 +9,7 @@ import (
 )
 
 func (r *REPL) initLocalSession() {
-	store, err := session.NewStore()
+	store, err := session.NewStore(r.cfg.ProfileName)
 	if err != nil {
 		r.session.LocalID = session.NewID()
 		return
@@ -19,29 +19,48 @@ func (r *REPL) initLocalSession() {
 		r.session.LocalID = session.NewID()
 		return
 	}
-	r.session.LocalID = latest.ID
-	r.session.LocalTitle = latest.Title
-	r.session.Messages = latest.Messages
-	r.session.ChatID = latest.ChatID
-	if latest.Model != "" {
-		r.session.Model = latest.Model
+	r.applySavedSession(latest)
+}
+
+func (r *REPL) applySavedSession(s session.Saved) {
+	r.session.LocalID = s.ID
+	r.session.LocalTitle = s.Title
+	r.session.Messages = s.Messages
+	r.session.ChatID = s.ChatID
+	if s.Model != "" {
+		r.session.Model = s.Model
 	}
+	r.session.CollectionID = s.CollectionID
+	r.session.CollectionName = s.CollectionName
+	r.session.AttachedFiles = append([]session.AttachedFile(nil), s.AttachedFiles...)
+	r.syncFileIDs()
+	r.session.ActiveFilterIDs = append([]string(nil), s.ActiveFilterIDs...)
+	r.session.FiltersCustomized = s.FiltersCustomized
+	r.session.ActiveToolIDs = append([]string(nil), s.ActiveToolIDs...)
+	r.session.ToolsCustomized = s.ToolsCustomized
 }
 
 func (r *REPL) persistSession() {
 	if r.session.LocalID == "" {
 		r.session.LocalID = session.NewID()
 	}
-	store, err := session.NewStore()
+	store, err := session.NewStore(r.cfg.ProfileName)
 	if err != nil {
 		return
 	}
 	_ = store.Save(session.Saved{
-		ID:       r.session.LocalID,
-		Title:    r.session.LocalTitle,
-		Model:    r.session.Model,
-		Messages: r.session.Messages,
-		ChatID:   r.session.ChatID,
+		ID:             r.session.LocalID,
+		Title:          r.session.LocalTitle,
+		Model:          r.session.Model,
+		Messages:       r.session.Messages,
+		ChatID:         r.session.ChatID,
+		CollectionID:   r.session.CollectionID,
+		CollectionName: r.session.CollectionName,
+		AttachedFiles:     append([]session.AttachedFile(nil), r.session.AttachedFiles...),
+		ActiveFilterIDs:   append([]string(nil), r.session.ActiveFilterIDs...),
+		FiltersCustomized: r.session.FiltersCustomized,
+		ActiveToolIDs:     append([]string(nil), r.session.ActiveToolIDs...),
+		ToolsCustomized:   r.session.ToolsCustomized,
 	})
 }
 
@@ -51,6 +70,14 @@ func (r *REPL) newLocalSession() {
 	r.session.Messages = nil
 	r.session.ChatID = ""
 	r.session.Title = ""
+	r.session.CollectionID = ""
+	r.session.CollectionName = ""
+	r.session.AttachedFiles = nil
+	r.session.FileIDs = nil
+	r.session.ActiveFilterIDs = nil
+	r.session.FiltersCustomized = false
+	r.session.ActiveToolIDs = nil
+	r.session.ToolsCustomized = false
 	if r.cfg.SystemPrompt != "" {
 		r.session.Messages = append(r.session.Messages, api.Message{Role: "system", Content: r.cfg.SystemPrompt})
 	}
@@ -58,7 +85,7 @@ func (r *REPL) newLocalSession() {
 }
 
 func (r *REPL) formatLocalSessions() string {
-	store, err := session.NewStore()
+	store, err := session.NewStore(r.cfg.ProfileName)
 	if err != nil {
 		return "error: " + err.Error()
 	}
@@ -97,7 +124,7 @@ func (r *REPL) formatLocalSessions() string {
 }
 
 func (r *REPL) loadLocalSession(id string) error {
-	store, err := session.NewStore()
+	store, err := session.NewStore(r.cfg.ProfileName)
 	if err != nil {
 		return err
 	}
@@ -107,13 +134,7 @@ func (r *REPL) loadLocalSession(id string) error {
 	}
 	for _, s := range all {
 		if s.ID == id || strings.HasPrefix(s.ID, id) {
-			r.session.LocalID = s.ID
-			r.session.LocalTitle = s.Title
-			r.session.Messages = s.Messages
-			r.session.ChatID = s.ChatID
-			if s.Model != "" {
-				r.session.Model = s.Model
-			}
+			r.applySavedSession(s)
 			return nil
 		}
 	}

@@ -10,7 +10,7 @@ import (
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	s := &Store{dir: dir}
+	s := &Store{dir: dir} // profile-scoped dir
 
 	orig := Saved{
 		ID:    "test-session-1",

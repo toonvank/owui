@@ -14,25 +14,35 @@ import (
 	"github.com/toonvank/owui/internal/config"
 )
 
+// AttachedFile is an uploaded file linked to a local session for RAG.
+type AttachedFile struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type Saved struct {
-	ID        string        `json:"id"`
-	Title     string        `json:"title"`
-	Model     string        `json:"model"`
-	Messages  []api.Message `json:"messages"`
-	ChatID    string        `json:"chat_id,omitempty"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	ID             string         `json:"id"`
+	Title          string         `json:"title"`
+	Model          string         `json:"model"`
+	Messages       []api.Message  `json:"messages"`
+	ChatID         string         `json:"chat_id,omitempty"`
+	CollectionID   string         `json:"collection_id,omitempty"`
+	CollectionName string         `json:"collection_name,omitempty"`
+	AttachedFiles     []AttachedFile `json:"attached_files,omitempty"`
+	ActiveFilterIDs   []string       `json:"active_filter_ids,omitempty"`
+	FiltersCustomized bool           `json:"filters_customized,omitempty"`
+	ActiveToolIDs     []string       `json:"active_tool_ids,omitempty"`
+	ToolsCustomized   bool           `json:"tools_customized,omitempty"`
+	UpdatedAt         time.Time      `json:"updated_at"`
 }
 
 type Store struct {
 	dir string
 }
 
-func NewStore() (*Store, error) {
-	dir, err := config.SessionsDir()
+func NewStore(profile string) (*Store, error) {
+	dir, err := config.SessionsDir(profile)
 	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	return &Store{dir: dir}, nil
@@ -54,7 +64,7 @@ func (s *Store) Save(sess Saved) error {
 	}
 	sess.UpdatedAt = time.Now().UTC()
 	if sess.Title == "" {
-		sess.Title = deriveTitle(sess.Messages)
+		sess.Title = DeriveTitle(sess.Messages)
 	}
 	data, err := json.MarshalIndent(sess, "", "  ")
 	if err != nil {
@@ -116,7 +126,8 @@ func (s *Store) Latest() (Saved, error) {
 	return all[0], nil
 }
 
-func deriveTitle(messages []api.Message) string {
+// DeriveTitle builds a short title from the latest non-empty user message.
+func DeriveTitle(messages []api.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" && strings.TrimSpace(messages[i].Content) != "" {
 			t := strings.TrimSpace(messages[i].Content)

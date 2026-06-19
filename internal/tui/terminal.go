@@ -1,13 +1,29 @@
 package tui
 
 import (
+	"os"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+	"github.com/toonvank/owui/internal/config"
 )
 
-// initTerminal disables OSC color queries that leak into stdin as garbage text
-// (e.g. "11;rgb:1a1a1a") and break the input field.
-func initTerminal() {
+// initTerminal configures lipgloss for the TUI display environment.
+func initTerminal(cfg config.Config) {
+	ApplyDisplayOptions(cfg)
+}
+
+// ApplyDisplayOptions sets color profile and background from config and NO_COLOR.
+func ApplyDisplayOptions(cfg config.Config) {
+	if os.Getenv("NO_COLOR") != "" || cfg.Theme == "none" {
+		lipgloss.SetColorProfile(termenv.Ascii)
+		return
+	}
 	lipgloss.SetColorProfile(termenv.TrueColor)
-	lipgloss.SetHasDarkBackground(true)
+	switch cfg.Theme {
+	case "light":
+		lipgloss.SetHasDarkBackground(false)
+	default:
+		lipgloss.SetHasDarkBackground(true)
+	}
 }

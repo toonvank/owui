@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -16,17 +14,20 @@ const (
 )
 
 type Config struct {
-	BaseURL             string   `yaml:"base_url"`
-	APIKey              string   `yaml:"api_key"`
-	DefaultModel        string   `yaml:"default_model"`
-	Stream              bool     `yaml:"stream"`
-	SystemPrompt        string   `yaml:"system_prompt"`
-	TimeoutSec          int      `yaml:"timeout_sec"`
-	InsecureTLS         bool     `yaml:"insecure_tls"`
-	CustomHeader        string   `yaml:"custom_api_key_header"`
-	ApplyModelFeatures  *bool    `yaml:"apply_model_features"`
-	FilterIDs           []string `yaml:"filter_ids"`
-	ToolIDs             []string `yaml:"tool_ids"`
+	ProfileName        string   `yaml:"-"`
+	BaseURL            string   `yaml:"base_url"`
+	APIKey             string   `yaml:"api_key"`
+	DefaultModel       string   `yaml:"default_model"`
+	Stream             bool     `yaml:"stream"`
+	SystemPrompt       string   `yaml:"system_prompt"`
+	TimeoutSec         int      `yaml:"timeout_sec"`
+	InsecureTLS        bool     `yaml:"insecure_tls"`
+	CustomHeader       string   `yaml:"custom_api_key_header"`
+	ApplyModelFeatures *bool    `yaml:"apply_model_features"`
+	FilterIDs          []string `yaml:"filter_ids"`
+	ToolIDs            []string `yaml:"tool_ids"`
+	Theme              string   `yaml:"theme,omitempty"`
+	VimKeys            bool     `yaml:"vim_keys,omitempty"`
 }
 
 func (c Config) ShouldApplyModelFeatures() bool {
@@ -38,8 +39,9 @@ func (c Config) ShouldApplyModelFeatures() bool {
 
 func Default() Config {
 	return Config{
-		Stream:     true,
-		TimeoutSec: 300,
+		ProfileName: DefaultProfile,
+		Stream:      true,
+		TimeoutSec:  300,
 	}
 }
 
@@ -69,59 +71,54 @@ func Path() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
-func SessionsDir() (string, error) {
-	dir, err := Dir()
+// SessionsDir returns the session storage directory for a profile.
+func SessionsDir(profile string) (string, error) {
+	if profile == "" {
+		profile = DefaultProfile
+	}
+	base, err := Dir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "sessions"), nil
+	safe := SanitizeProfileName(profile)
+	profDir := filepath.Join(base, "sessions", safe)
+
+	// Backward compat: flat sessions/ dir used before profiles.
+	if profile == DefaultProfile {
+		legacy, err := legacySessionsDir()
+		if err == nil && dirHasSessionJSON(legacy) && !dirHasSessionJSON(profDir) {
+			return legacy, nil
+		}
+	}
+	if err := os.MkdirAll(profDir, 0o700); err != nil {
+		return "", err
+	}
+	return profDir, nil
 }
 
 func Load() (Config, error) {
-	cfg := Default()
-	path, err := Path()
-	if err != nil {
-		return cfg, err
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			cfg = applyEnv(cfg)
-			return cfg, nil
-		}
-		return cfg, err
-	}
-
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("parse config: %w", err)
-	}
-
-	cfg = applyEnv(cfg)
-	if cfg.TimeoutSec <= 0 {
-		cfg.TimeoutSec = 300
-	}
-	return cfg, nil
+	return LoadWithProfile("")
 }
 
 func Save(cfg Config) error {
-	dir, err := Dir()
+	file, err := ReadFile()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	path, err := Path()
-	if err != nil {
-		return err
-	}
+	file.normalize()
 
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return err
+	name := cfg.ProfileName
+	if name == "" {
+		name = file.ActiveProfile
 	}
-	return os.WriteFile(path, data, 0o600)
+	if name == "" {
+		name = DefaultProfile
+	}
+	cfg.ProfileName = name
+	file.ActiveProfile = name
+	file.Profiles[name] = cfg.ToProfileSettings()
+	file.ProfileSettings = ProfileSettings{}
+	return WriteFile(file)
 }
 
 func applyEnv(cfg Config) Config {
@@ -145,4 +142,28 @@ func (c Config) Validate() error {
 		return errors.New("api_key is required (run `owui auth login` or set OWUI_API_KEY)")
 	}
 	return nil
+}
+
+// MaskedAPIKey returns a redacted API key for display.
+func (c Config) MaskedAPIKey() string {
+	if c.APIKey == "" {
+		return ""
+	}
+	if len(c.APIKey) <= 12 {
+		return "..."
+	}
+	return c.APIKey[:8] + "..." + c.APIKey[len(c.APIKey)-4:]
+}
+
+// ProfileSummary returns a one-line description of a profile.
+func ProfileSummary(name string, ps ProfileSettings) string {
+	url := ps.BaseURL
+	if url == "" {
+		url = "(not configured)"
+	}
+	model := ps.DefaultModel
+	if model == "" {
+		model = "-"
+	}
+	return fmt.Sprintf("%s  %s  model:%s", name, url, model)
 }

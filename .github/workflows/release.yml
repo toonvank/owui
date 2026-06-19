@@ -47,8 +47,15 @@ jobs:
               go build -ldflags "-s -w" -o "$out" ./cmd/owui/
           done
 
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/*
+            dist/SHA256SUMS
           generate_release_notes: true

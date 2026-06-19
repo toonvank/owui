@@ -3,10 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/toonvank/owui/internal/api"
+	"github.com/toonvank/owui/internal/files"
 	"github.com/toonvank/owui/internal/output"
 )
 
@@ -33,9 +32,10 @@ func filesCmd() *cobra.Command {
 
 			wait, _ := cmd.Flags().GetBool("wait")
 			if wait {
-				if err := waitForFile(client, resp.ID); err != nil {
+				if err := files.WaitForProcessing(client, resp.ID, files.DefaultWaitTimeout); err != nil {
 					return err
 				}
+				output.Success("file processing completed")
 			}
 
 			if jsonOut {
@@ -91,23 +91,4 @@ func filesCmd() *cobra.Command {
 
 	cmd.AddCommand(upload, status, del)
 	return cmd
-}
-
-func waitForFile(client *api.Client, id string) error {
-	deadline := time.Now().Add(5 * time.Minute)
-	for time.Now().Before(deadline) {
-		st, err := client.FileStatus(id)
-		if err != nil {
-			return err
-		}
-		switch st.Status {
-		case "completed":
-			output.Success("file processing completed")
-			return nil
-		case "failed":
-			return fmt.Errorf("file processing failed: %s", st.Error)
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return fmt.Errorf("timed out waiting for file processing")
 }

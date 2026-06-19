@@ -105,6 +105,9 @@ func RunWizard(cfg *config.Config, reconfigure bool) error {
 	}
 	cfg.Stream = true
 
+	if cfg.ProfileName == "" {
+		cfg.ProfileName = config.DefaultProfile
+	}
 	if err := config.Save(*cfg); err != nil {
 		return err
 	}

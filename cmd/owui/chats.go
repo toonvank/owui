@@ -36,6 +36,16 @@ func chatsCmd() *cobra.Command {
 				return nil
 			}
 
+			if pinned, perr := client.ListPinnedChats(); perr == nil {
+				pinIDs := make(map[string]bool, len(pinned))
+				for _, p := range pinned {
+					pinIDs[p.ID] = true
+				}
+				for i := range chats {
+					chats[i].Pinned = pinIDs[chats[i].ID]
+				}
+			}
+
 			rows := make([][]string, 0, len(chats))
 			for _, c := range chats {
 				ts := "-"
@@ -46,9 +56,13 @@ func chatsCmd() *cobra.Command {
 				if len(title) > 40 {
 					title = title[:37] + "..."
 				}
-				rows = append(rows, []string{c.ID[:8], title, ts})
+				pin := ""
+				if c.Pinned {
+					pin = "yes"
+				}
+				rows = append(rows, []string{pin, c.ID[:8], title, ts})
 			}
-			output.Table([]string{"ID", "TITLE", "UPDATED"}, rows)
+			output.Table([]string{"PIN", "ID", "TITLE", "UPDATED"}, rows)
 			return nil
 		},
 	}
@@ -103,7 +117,7 @@ func chatsCmd() *cobra.Command {
 			for _, m := range loaded.Messages {
 				fmt.Printf("[%s] %s\n", m.Role, truncate(m.Content, 120))
 			}
-			output.Info("use `owui` then /resume " + loaded.ID[:8] + " to resume in REPL")
+			output.Info("resume in TUI: owui --resume " + loaded.ID[:8])
 			return nil
 		},
 	}
@@ -125,7 +139,37 @@ func chatsCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(list, load, show, del)
+	pin := &cobra.Command{
+		Use:   "pin <id>",
+		Short: "Toggle pin on a server chat",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := mustClient()
+			if err != nil {
+				return err
+			}
+			pinned, err := client.ToggleChatPinned(args[0])
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				b, _ := json.MarshalIndent(map[string]any{
+					"id":     args[0],
+					"pinned": pinned,
+				}, "", "  ")
+				output.JSON(string(b))
+				return nil
+			}
+			state := "unpinned"
+			if pinned {
+				state = "pinned"
+			}
+			output.Success("chat " + state)
+			return nil
+		},
+	}
+
+	cmd.AddCommand(list, load, show, del, pin)
 	return cmd
 }
 

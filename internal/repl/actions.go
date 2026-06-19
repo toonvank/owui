@@ -3,6 +3,7 @@ package repl
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/toonvank/owui/internal/api"
 )
@@ -15,6 +16,8 @@ type SlashResult struct {
 	Cleared        bool
 	ReloadMessages bool
 	ModelSet       string
+	ResendPrompt   string
+	ScrollToMsg    int
 }
 
 // GetSuggestions returns autocomplete entries for the current input line.
@@ -30,9 +33,10 @@ func (r *REPL) GetSuggestions(line string) []Suggestion {
 
 // ChatUserMessage sends a user message and returns the assistant reply.
 func (r *REPL) ChatUserMessage(prompt string, onDelta func(string)) (string, error) {
+	r.ensureServerChatID()
 	r.session.Messages = append(r.session.Messages, api.Message{Role: "user", Content: prompt})
 
-	opts := &api.ChatOptions{ChatID: r.session.ChatID}
+	opts := r.chatOptions()
 	var streamFn func(string) error
 	if onDelta != nil {
 		streamFn = func(delta string) error {
@@ -41,12 +45,15 @@ func (r *REPL) ChatUserMessage(prompt string, onDelta func(string)) (string, err
 		}
 	}
 
+	start := time.Now()
 	reply, err := r.client.ChatWithOptions(r.session.Messages, r.session.Model, r.cfg.Stream, opts, streamFn)
+	r.lastTurnDuration = time.Since(start)
 	if err != nil {
 		return "", err
 	}
 	r.session.Messages = append(r.session.Messages, api.Message{Role: "assistant", Content: reply})
 	r.persistSession()
+	r.maybeAutoTitleServerChat()
 	return reply, nil
 }
 
@@ -120,6 +127,9 @@ func (r *REPL) RunSlashCommand(line string) SlashResult {
 	case "session":
 		return r.slashSession(args)
 	case "model":
+		if len(args) == 1 && args[0] == "info" {
+			return SlashResult{Output: r.formatModelIntegrations()}
+		}
 		if len(args) == 0 {
 			return SlashResult{Output: "current model: " + r.session.Model}
 		}
@@ -150,10 +160,72 @@ func (r *REPL) RunSlashCommand(line string) SlashResult {
 	case "setup":
 		return SlashResult{Output: "Exit owui and run: owui setup\nChange URL only: owui config set url <url>"}
 	case "filters", "functions":
-		return SlashResult{Output: r.formatFilters()}
+		return r.slashFilters(args)
+	case "tools":
+		return r.slashTools(args)
+	case "system":
+		return SlashResult{Output: r.setSystemPrompt(strings.Join(args, " "))}
+	case "title":
+		return SlashResult{Output: r.setSessionTitle(strings.Join(args, " "))}
+	case "export":
+		return r.slashExport(args)
+	case "copy":
+		msg, err := r.copyLastAssistant()
+		if err != nil {
+			return SlashResult{Err: err}
+		}
+		return SlashResult{Output: msg}
+	case "regen":
+		prompt, err := r.regenPrompt()
+		if err != nil {
+			return SlashResult{Err: err}
+		}
+		return SlashResult{ResendPrompt: prompt}
+	case "sessions":
+		if len(args) == 0 {
+			return SlashResult{Output: "type /sessions in the input to browse local sessions"}
+		}
+		return SlashResult{Output: r.formatLocalSessions()}
+	case "file", "files":
+		return r.slashFile(args, line)
+	case "knowledge", "kb":
+		return r.slashKnowledge(args)
+	case "profile":
+		return r.slashProfile(args)
+	case "search":
+		return r.slashSearch(args)
+	case "fork":
+		return r.forkSession()
+	case "delete":
+		return r.deleteServerChat()
+	case "pin":
+		return r.toggleCurrentChatPin()
 	default:
 		return SlashResult{Err: fmt.Errorf("unknown command: /%s", cmd)}
 	}
+}
+
+func (r *REPL) slashExport(args []string) SlashResult {
+	format := "md"
+	path := ""
+	switch len(args) {
+	case 0:
+	case 1:
+		if strings.HasPrefix(args[0], ".") || strings.Contains(args[0], "/") {
+			path = args[0]
+		} else {
+			format = args[0]
+		}
+	case 2:
+		format, path = args[0], args[1]
+	default:
+		return SlashResult{Err: fmt.Errorf("usage: /export [md|json] [path]")}
+	}
+	written, err := r.exportSession(format, path)
+	if err != nil {
+		return SlashResult{Err: err}
+	}
+	return SlashResult{Output: "exported to " + written}
 }
 
 func (r *REPL) slashSession(args []string) SlashResult {
@@ -236,11 +308,12 @@ func (r *REPL) formatModels(args []string) string {
 }
 
 func (r *REPL) formatServerInfo() string {
-	return fmt.Sprintf("server: %s\nmodel:   %s\n\nchange server: owui config set url <url>\nreconfigure:    owui setup", r.cfg.BaseURL, r.session.Model)
+	return fmt.Sprintf("profile: %s\nserver:  %s\nmodel:   %s\n\nswitch profile: /profile or owui config profile use <name>\nchange server:  owui config set url <url>\nreconfigure:     owui setup", r.ProfileName(), r.cfg.BaseURL, r.session.Model)
 }
 
 func (r *REPL) formatChats(args []string) string {
-	chats, err := r.client.ListChats(1)
+	r.ensureChats()
+	chats, err := r.chats.list()
 	if err != nil {
 		return "error: " + err.Error()
 	}
@@ -260,7 +333,11 @@ func (r *REPL) formatChats(args []string) string {
 		if len(title) > 45 {
 			title = title[:42] + "..."
 		}
-		fmt.Fprintf(&b, "  %s  %s\n", ch.ID[:8], title)
+		pin := "  "
+		if ch.Pinned {
+			pin = "📌"
+		}
+		fmt.Fprintf(&b, "  %s %s  %s\n", pin, ch.ID[:8], title)
 		shown++
 		if shown >= limit {
 			fmt.Fprintf(&b, "showing %d chats — /resume <id> to resume", limit)
@@ -273,35 +350,3 @@ func (r *REPL) formatChats(args []string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (r *REPL) formatFilters() string {
-	fns, err := r.client.ListFunctions()
-	if err != nil {
-		return "error: " + err.Error()
-	}
-	model, _ := r.client.ModelByID(r.session.Model)
-	meta := model.Meta()
-	var b strings.Builder
-	fmt.Fprintf(&b, "model %s — default filters: %v\n", r.session.Model, meta.DefaultFilterIDs)
-	if features := api.FeaturesFromModel(model); len(features) > 0 {
-		keys := make([]string, 0, len(features))
-		for k := range features {
-			keys = append(keys, k)
-		}
-		fmt.Fprintf(&b, "auto features: %s\n", strings.Join(keys, ", "))
-	}
-	for _, fn := range fns {
-		if fn.Type != "filter" {
-			continue
-		}
-		state := "off"
-		if fn.IsActive {
-			state = "on"
-		}
-		scope := "model"
-		if fn.IsGlobal {
-			scope = "global"
-		}
-		fmt.Fprintf(&b, "  [%s/%s] %s (%s)\n", state, scope, fn.Name, fn.ID)
-	}
-	return strings.TrimRight(b.String(), "\n")
-}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
@@ -239,13 +240,15 @@ type ChatRequest struct {
 }
 
 type ChatOptions struct {
-	ToolIDs    []string
-	FilterIDs  []string
-	FileIDs    []string
-	Collection string
-	ChatID     string
-	Features   map[string]any
+	ToolIDs           []string
+	FilterIDs         []string
+	FileIDs           []string
+	Collection        string
+	ChatID            string
+	Features          map[string]any
 	SkipModelFeatures bool
+	ExplicitFilters   bool
+	ExplicitTools     bool
 }
 
 type ChatResponse struct {
@@ -321,14 +324,16 @@ func (c *Client) applyModelIntegrations(req *ChatRequest, opts *ChatOptions) {
 	if req.Features == nil {
 		req.Features = FeaturesFromModel(model)
 	}
-	if len(req.FilterIDs) == 0 {
+	explicitFilters := opts != nil && opts.ExplicitFilters
+	if len(req.FilterIDs) == 0 && !explicitFilters {
 		extra := c.cfg.FilterIDs
 		if opts != nil && len(opts.FilterIDs) > 0 {
 			extra = append(extra, opts.FilterIDs...)
 		}
 		req.FilterIDs = FilterIDsFromModel(model, extra)
 	}
-	if len(req.ToolIDs) == 0 {
+	explicitTools := opts != nil && opts.ExplicitTools
+	if len(req.ToolIDs) == 0 && !explicitTools {
 		if opts != nil && len(opts.ToolIDs) > 0 {
 			req.ToolIDs = opts.ToolIDs
 		} else if len(c.cfg.ToolIDs) > 0 {
@@ -401,6 +406,7 @@ type ChatSummary struct {
 	Title     string `json:"title"`
 	UpdatedAt int64  `json:"updated_at"`
 	CreatedAt int64  `json:"created_at"`
+	Pinned    bool   `json:"pinned,omitempty"`
 }
 
 func (c *Client) ListChats(page int) ([]ChatSummary, error) {
@@ -527,10 +533,70 @@ func (c *Client) DeleteFile(id string) error {
 }
 
 func (c *Client) PullModel(name string) error {
-	return c.request(http.MethodPost, "/ollama/api/pull", map[string]any{
+	return c.PullModelWithProgress(name, nil)
+}
+
+// PullModelWithProgress pulls an Ollama model, optionally reporting status lines.
+func (c *Client) PullModelWithProgress(name string, onStatus func(string)) error {
+	body := map[string]any{
 		"name":   name,
-		"stream": false,
-	}, nil)
+		"stream": onStatus != nil,
+	}
+	if onStatus == nil {
+		return c.request(http.MethodPost, "/ollama/api/pull", body, nil)
+	}
+
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.base+"/ollama/api/pull", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	c.setAuth(req)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		data, _ := io.ReadAll(resp.Body)
+		return parseAPIError(resp.StatusCode, data)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var ev struct {
+			Status    string `json:"status"`
+			Completed int    `json:"completed"`
+			Total     int    `json:"total"`
+			Error     string `json:"error"`
+		}
+		if err := json.Unmarshal(line, &ev); err != nil {
+			continue
+		}
+		if ev.Error != "" {
+			return fmt.Errorf("%s", ev.Error)
+		}
+		msg := ev.Status
+		if ev.Total > 0 {
+			pct := int(float64(ev.Completed) / float64(ev.Total) * 100)
+			msg = fmt.Sprintf("%s (%d%%)", ev.Status, pct)
+		}
+		if msg != "" {
+			onStatus(msg)
+		}
+	}
+	return scanner.Err()
 }
 
 func (c *Client) ListOllamaModels() ([]map[string]any, error) {

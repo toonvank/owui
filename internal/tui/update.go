@@ -63,7 +63,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Meta overlay captures navigation before the text input.
-		if m.metaOverlay == metaModelPicker || m.metaOverlay == metaChatPicker {
+		if m.metaOverlay == metaModelPicker || m.metaOverlay == metaChatPicker ||
+			m.metaOverlay == metaSessionPicker || m.metaOverlay == metaKnowledgePicker ||
+			m.metaOverlay == metaProfilePicker ||
+			m.metaOverlay == metaFilterPicker || m.metaOverlay == metaToolPicker {
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
@@ -91,6 +94,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter", "tab":
 				m.confirmMetaPick()
 				return m, nil
+			case "p":
+				if m.metaOverlay == metaChatPicker {
+					m.toggleChatPinPick()
+					return m, nil
+				}
 			default:
 				// Allow typing to filter while picker is open.
 				if msg.Type == tea.KeyRunes {
@@ -151,12 +159,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+			if m.metaOverlay == metaNone && !m.chatActive && m.textinput.Value() == "" {
+				if recalled := m.repl.RecallInput(-1); recalled != "" {
+					m.textinput.SetValue(recalled)
+					return m, nil
+				}
+				if last := m.repl.LastUserMessage(); last != "" {
+					m.textinput.SetValue(last)
+					return m, nil
+				}
+			}
 		case "down":
 			if m.showSuggestions && len(m.suggestions) > 0 {
 				m.selectedSuggestion++
 				if m.selectedSuggestion >= len(m.suggestions) {
 					m.selectedSuggestion = 0
 				}
+				return m, nil
+			}
+			if m.metaOverlay == metaNone && !m.chatActive && m.repl.HistoryBrowsing() {
+				m.textinput.SetValue(m.repl.RecallInput(1))
+				return m, nil
+			}
+		case "j":
+			if m.repl.VimKeysEnabled() && m.metaOverlay == metaNone && !m.chatActive && m.textinput.Value() == "" {
+				m.viewport.LineDown(1)
+				return m, nil
+			}
+		case "k":
+			if m.repl.VimKeysEnabled() && m.metaOverlay == metaNone && !m.chatActive && m.textinput.Value() == "" {
+				m.viewport.LineUp(1)
 				return m, nil
 			}
 		case "tab":
@@ -178,6 +210,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if active, _ := parseChatsCommand(line); active {
 				m.syncMetaOverlay()
 				m.confirmMetaPick()
+				return m, nil
+			}
+			if active, _ := parseSessionsCommand(line); active {
+				m.syncMetaOverlay()
+				m.confirmMetaPick()
+				return m, nil
+			}
+			if active, _ := parseKnowledgeCommand(line); active {
+				m.syncMetaOverlay()
+				m.confirmMetaPick()
+				return m, nil
+			}
+			if active, _ := parseProfileCommand(line); active {
+				m.syncMetaOverlay()
+				m.confirmMetaPick()
+				return m, nil
+			}
+			if active, _ := parseFiltersCommand(line); active {
+				m.syncMetaOverlay()
+				if m.isToggleOverlay() {
+					m.toggleMetaPick()
+				} else {
+					m.confirmMetaPick()
+				}
+				return m, nil
+			}
+			if active, _ := parseToolsCommand(line); active {
+				m.syncMetaOverlay()
+				if m.isToggleOverlay() {
+					m.toggleMetaPick()
+				} else {
+					m.confirmMetaPick()
+				}
 				return m, nil
 			}
 			m.textinput.SetValue("")
